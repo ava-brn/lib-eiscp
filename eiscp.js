@@ -1,12 +1,13 @@
 'use strict';
 
+const net = require('net');
+const dgram = require('dgram');
+const util = require('util');
+const async = require('async');
+const events = require('events');
+const eiscp_commands = require('./eiscp-commands.json');
+
 let self, eiscp, send_queue,
-    net = require('net'),
-    dgram = require('dgram'),
-    util = require('util'),
-    async = require('async'),
-    events = require('events'),
-    eiscp_commands = require('./eiscp-commands.json'),
     COMMANDS = eiscp_commands.commands,
     COMMAND_MAPPINGS = eiscp_commands.command_mappings,
     VALUE_MAPPINGS = eiscp_commands.value_mappings,
