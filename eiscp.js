@@ -7,12 +7,20 @@ const async = require('async');
 const events = require('events');
 const eiscp_commands = require('./eiscp-commands.json');
 
-let self, eiscp, send_queue,
-    COMMANDS = eiscp_commands.commands,
-    COMMAND_MAPPINGS = eiscp_commands.command_mappings,
-    VALUE_MAPPINGS = eiscp_commands.value_mappings,
-    MODELSETS = eiscp_commands.modelsets,
-    config = { port: 60128, reconnect: true, reconnect_sleep: 5, modelsets: [], send_delay: 500, verify_commands: true };
+const COMMANDS = eiscp_commands.commands;
+const COMMAND_MAPPINGS = eiscp_commands.command_mappings;
+const VALUE_MAPPINGS = eiscp_commands.value_mappings;
+const MODELSETS = eiscp_commands.modelsets;
+
+let self, eiscp, send_queue;
+let config = {
+    port: 60128,
+    reconnect: true,
+    reconnect_sleep: 5,
+    modelsets: [],
+    send_delay: 500,
+    verify_commands: true
+};
 
 module.exports = self = new events.EventEmitter();
 
@@ -34,10 +42,10 @@ function eiscp_packet(data) {
     // Add ISCP header if not already present
     if (data.charAt(0) !== '!') { data = '!1' + data; }
     // ISCP message
-    iscp_msg = new Buffer(data + '\x0D\x0a');
+    iscp_msg = Buffer.from(data + '\x0D\x0a');
 
     // eISCP header
-    header = new Buffer([
+    header = Buffer.from([
         73, 83, 67, 80, // magic
         0, 0, 0, 16,    // header size
         0, 0, 0, 0,     // data size
@@ -50,36 +58,31 @@ function eiscp_packet(data) {
     return Buffer.concat([header, iscp_msg]);
 }
 
+/**
+  Exracts message from eISCP packet
+  Strip first 18 bytes and last 3 since that's only the header and end characters
+*/
 function eiscp_packet_extract(packet) {
-    /*
-      Exracts message from eISCP packet
-      Strip first 18 bytes and last 3 since that's only the header and end characters
-    */
     return packet.toString('ascii', 18, packet.length - 3);
 }
 
+/** Transform a low-level ISCP message to a high-level command */
 function iscp_to_command(iscp_message) {
-    /*
-      Transform a low-level ISCP message to a high-level command
-    */
-    let command = iscp_message.slice(0, 3),
-        value = iscp_message.slice(3),
-        result = {};
+    let command = iscp_message.slice(0, 3);
+    let value = iscp_message.slice(3);
+    let result = {};
 
     Object.keys(COMMANDS).forEach(function (zone) {
 
         if (typeof COMMANDS[zone][command] !== 'undefined') {
-
             let zone_cmd = COMMANDS[zone][command];
 
             result.command = zone_cmd.name;
             result.zone = zone;
+
             if (typeof zone_cmd.values[value] !== 'undefined') {
-
                 result.argument = zone_cmd.values[value].name;
-
             } else if (typeof VALUE_MAPPINGS[zone][command].INTRANGES !== 'undefined' && /^[0-9a-fA-F]+$/.test(value)) {
-
                 // It's a range so we need to convert args from hex to decimal
                 result.argument = parseInt(value, 16);
             }
@@ -90,10 +93,8 @@ function iscp_to_command(iscp_message) {
 }
 
 // TODO: This function is starting to get very big, it should be split up into smaller parts and oranized better
+/** Transform high-level command to a low-level ISCP message */
 function command_to_iscp(command, args, zone) {
-    /*
-      Transform high-level command to a low-level ISCP message
-    */
     let base, parts, prefix, value, i, len, intranges,
         default_zone = 'main';
 
@@ -143,6 +144,7 @@ function command_to_iscp(command, args, zone) {
         self.emit('error', util.format("ERROR (cmd_not_exist) Command %s does not exist in zone %s", command, zone));
         return;
     }
+
     prefix = COMMAND_MAPPINGS[zone][command];
 
     if (typeof VALUE_MAPPINGS[zone][prefix][args] === 'undefined') {
@@ -177,14 +179,12 @@ function command_to_iscp(command, args, zone) {
 			}
 
         } else {
-
             // Not yet supported command
             self.emit('error', util.format("ERROR (arg_not_exist) Argument %s does not exist in command %s", args, command));
             return;
         }
 
     } else {
-
         // Check if the commands modelset is in the receviers modelsets
         if (!config.verify_commands || in_modelsets(VALUE_MAPPINGS[zone][prefix][args].models)) {
             value = VALUE_MAPPINGS[zone][prefix][args].value;
@@ -199,15 +199,15 @@ function command_to_iscp(command, args, zone) {
     return prefix + value;
 }
 
+/**
+  discover([options, ] callback)
+  Sends broadcast and waits for response callback called when number of devices or timeout reached
+  option.devices    - stop listening after this amount of devices have answered (default: 1)
+  option.timeout    - time in seconds to wait for devices to respond (default: 10)
+  option.address    - broadcast address to send magic packet to (default: 255.255.255.255)
+  option.port       - receiver port should always be 60128 this is just available if you need it
+*/
 self.discover = function () {
-    /*
-      discover([options, ] callback)
-      Sends broadcast and waits for response callback called when number of devices or timeout reached
-      option.devices    - stop listening after this amount of devices have answered (default: 1)
-      option.timeout    - time in seconds to wait for devices to respond (default: 10)
-      option.address    - broadcast address to send magic packet to (default: 255.255.255.255)
-      option.port       - receiver port should always be 60128 this is just available if you need it
-    */
     let callback, timeout_timer,
         options = {},
         result = [],
@@ -235,56 +235,59 @@ self.discover = function () {
     }
 
     client
-	.on('error', function (err) {
-        self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", options.address, options.port, err));
-        client.close();
-        callback(err, null);
-    })
-	.on('message', function (packet, rinfo) {
-        let message = eiscp_packet_extract(packet),
-            command = message.slice(0, 3),
-            data;
-        if (command === 'ECN') {
-            data = message.slice(3).split('/');
-            result.push({
-                host:     rinfo.address,
-                port:     data[1],
-                model:    data[0],
-                mac:      data[3].slice(0, 12), // There's lots of null chars after MAC so we slice them off
-                areacode: data[2]
-            });
-            self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", rinfo.address, rinfo.port, result));
-            if (result.length >= options.devices) {
-                clearTimeout(timeout_timer);
-                close();
+        .on('error', function (err) {
+            self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", options.address, options.port, err));
+            client.close();
+            callback(err, null);
+        })
+        .on('message', function (packet, rinfo) {
+            let message = eiscp_packet_extract(packet),
+                command = message.slice(0, 3),
+                data;
+            if (command === 'ECN') {
+                data = message.slice(3).split('/');
+                result.push({
+                    host:     rinfo.address,
+                    port:     data[1],
+                    model:    data[0],
+                    mac:      data[3].slice(0, 12), // There's lots of null chars after MAC so we slice them off
+                    areacode: data[2]
+                });
+                
+                self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", rinfo.address, rinfo.port, result));
+                if (result.length >= options.devices) {
+                    clearTimeout(timeout_timer);
+                    close();
+                }
+            } else {
+                self.emit('debug', util.format("DEBUG (received_data) Recevied data from %s:%s - %j", rinfo.address, rinfo.port, message));
             }
-        } else {
-            self.emit('debug', util.format("DEBUG (received_data) Recevied data from %s:%s - %j", rinfo.address, rinfo.port, message));
-        }
-    })
-	.on('listening', function () {
-        client.setBroadcast(true);
-        let onkyo_buffer = eiscp_packet('!xECNQSTN');
-	let pioneer_buffer = eiscp_packet('!pECNQSTN');
-        self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
-        client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
-	client.send(pioneer_buffer, 0, pioneer_buffer.length, options.port, options.address);
-        timeout_timer = setTimeout(close, options.timeout * 1000);
-    })
-    .bind(0);
+        })
+        .on('listening', function () {
+            client.setBroadcast(true);
+            let onkyo_buffer = eiscp_packet('!xECNQSTN');
+            let pioneer_buffer = eiscp_packet('!pECNQSTN');
+
+            self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
+            client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
+            client.send(pioneer_buffer, 0, pioneer_buffer.length, options.port, options.address);
+            
+            timeout_timer = setTimeout(close, options.timeout * 1000);
+        })
+        .bind(0);
 };
 
+/**
+  No options required if you only have one receiver on your network. We will find it and connect to it!
+  options.host            - Hostname/IP
+  options.port            - Port (default: 60128)
+  options.send_delay      - Delay in milliseconds between each command sent to receiver (default: 500)
+  options.model           - Should be discovered automatically but if you want to override it you can
+  options.reconnect       - Try to reconnect if connection is lost (default: false)
+  options.reconnect_sleep - Time in seconds to sleep between reconnection attempts (default: 5)
+  options.verify_commands - Whether the reject commands not found for the current model
+*/
 self.connect = function (options) {
-    /*
-      No options required if you only have one receiver on your network. We will find it and connect to it!
-      options.host            - Hostname/IP
-      options.port            - Port (default: 60128)
-      options.send_delay      - Delay in milliseconds between each command sent to receiver (default: 500)
-      options.model           - Should be discovered automatically but if you want to override it you can
-      options.reconnect       - Try to reconnect if connection is lost (default: false)
-      options.reconnect_sleep - Time in seconds to sleep between reconnection attempts (default: 5)
-      options.verify_commands - Whether the reject commands not found for the current model
-    */
     let connection_properties;
 
     options = options || {};
@@ -345,70 +348,61 @@ self.connect = function (options) {
 	// Connecting the first time
 	eiscp = net.connect(connection_properties);
 
-	eiscp.
-	on('connect', function () {
+	eiscp
+        .on('connect', function () {
+            self.is_connected = true;
+            self.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", config.host, config.port, config.model));
+            self.emit('connect', config.host, config.port, config.model);
+        })
+        .on('close', function () {
+            self.is_connected = false;
+            self.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", config.host, config.port));
+            self.emit('close', config.host, config.port);
 
-		self.is_connected = true;
-		self.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", config.host, config.port, config.model));
-		self.emit('connect', config.host, config.port, config.model);
-	}).
+            if (config.reconnect) {
+                setTimeout(self.connect, config.reconnect_sleep * 1000);
+            }
+        })
+        .on('error', function (err) {
+            self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", config.host, config.port, err));
+            eiscp.destroy();
+        })
+        .on('data', function (data) {
+            let iscp_message = eiscp_packet_extract(data);
+            let result = iscp_to_command(iscp_message);
 
-	on('close', function () {
+            result.iscp_command = iscp_message;
+            result.host  = config.host;
+            result.port  = config.port;
+            result.model = config.model;
 
-		self.is_connected = false;
-		self.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", config.host, config.port));
-		self.emit('close', config.host, config.port);
+            self.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", config.host, config.port, result));
+            self.emit('data', result);
 
-		if (config.reconnect) {
-
-			setTimeout(self.connect, config.reconnect_sleep * 1000);
-		}
-	}).
-
-	on('error', function (err) {
-
-		self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", config.host, config.port, err));
-		eiscp.destroy();
-	}).
-
-	on('data', function (data) {
-
-		let iscp_message = eiscp_packet_extract(data),
-			result = iscp_to_command(iscp_message);
-
-		result.iscp_command = iscp_message;
-        result.host  = config.host;
-        result.port  = config.port;
-        result.model = config.model;
-
-		self.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", config.host, config.port, result));
-		self.emit('data', result);
-
-		// If the command is supported we emit it as well
-		if (typeof result.command !== 'undefined') {
-			if (Array.isArray(result.command)) {
-				result.command.forEach(function (cmd) {
-					self.emit(cmd, result.argument);
-				});
-			} else {
-				self.emit(result.command, result.argument);
-			}
-		}
-	});
+            // If the command is supported we emit it as well
+            if (typeof result.command !== 'undefined') {
+                if (Array.isArray(result.command)) {
+                    result.command.forEach(function (cmd) {
+                        self.emit(cmd, result.argument);
+                    });
+                } else {
+                    self.emit(result.command, result.argument);
+                }
+            }
+        });
 };
 
 self.close = self.disconnect = function () {
-
     if (self.is_connected) {
         eiscp.destroy();
     }
 };
 
+/**
+  Syncronous queue which sends commands to device
+  callback(bool error, string error_message)
+*/
 send_queue = async.queue(function (data, callback) {
-    /*
-      Syncronous queue which sends commands to device
-	  callback(bool error, string error_message)
-    */
     if (self.is_connected) {
 
         self.emit('debug', util.format("DEBUG (sent_command) Sent command to %s:%s - %s", config.host, config.port, data));
@@ -424,43 +418,36 @@ send_queue = async.queue(function (data, callback) {
 
 }, 1);
 
+/**
+  Send a low level command like PWR01
+  callback only tells you that the command was sent but not that it succsessfully did what you asked
+*/
 self.raw = function (data, callback) {
-    /*
-      Send a low level command like PWR01
-      callback only tells you that the command was sent but not that it succsessfully did what you asked
-    */
     if (typeof data !== 'undefined' && data !== '') {
-
         send_queue.push(data, function (err) {
-
             if (typeof callback === 'function') {
-
                 callback(err, null);
             }
         });
-
     } else if (typeof callback === 'function') {
-
         callback(true, 'No data provided.');
     }
 };
 
+/**
+  Send a high level command like system-power=query
+  callback only tells you that the command was sent but not that it succsessfully did what you asked
+*/
 self.command = function (data, callback) {
-    /*
-      Send a high level command like system-power=query
-      callback only tells you that the command was sent but not that it succsessfully did what you asked
-    */
-
     self.raw(command_to_iscp(data), callback);
 };
 
+/**
+  Returns all commands in given zone
+*/
 self.get_commands = function (zone, callback) {
-    /*
-      Returns all commands in given zone
-    */
     let result = [];
     async.each(Object.keys(COMMAND_MAPPINGS[zone]), function (cmd, cb) {
-        //console.log(cmd);
         result.push(cmd);
         cb();
     }, function (err) {
@@ -468,13 +455,13 @@ self.get_commands = function (zone, callback) {
     });
 };
 
+/**
+  Returns all command values in given zone and command
+*/
 self.get_command = function (command, callback) {
-    /*
-      Returns all command values in given zone and command
-    */
-    let val, zone,
-        result = [],
-        parts = command.split('.');
+    let zone;
+    let result = [];
+    let parts = command.split('.');
 
     if (parts.length !== 2) {
         zone = 'main';
