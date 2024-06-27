@@ -1,6 +1,6 @@
 {
   "name": "lib-eiscp",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "interface to onkyo receivers / eiscp protocol",
   "main": "eiscp.js",
   "scripts": {

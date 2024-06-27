@@ -24,6 +24,77 @@ let config = {
 
 module.exports = self = new events.EventEmitter();
 
+self.v2 = class Client {
+    /**
+     * Discovers eISCP providers using a UDP broadcast message.
+     * @param {Object} options
+     * @param {number} options.devices    - stop listening after this amount of devices have answered (default: 1)
+     * @param {number} options.timeout    - time in seconds to wait for devices to respond (default: 10)
+     * @param {string} options.address    - broadcast address to send magic packet to (default: 255.255.255.255)
+     * @param {number} options.port       - receiver port should always be 60128 this is just available if you need it
+     * @returns Promise<Service[]>
+     */
+    static async discover (options = {}) {
+        return new Promise((resolve, reject) => {
+            let timeout_timer;
+            let result = [];
+            const client = dgram.createSocket('udp4');
+
+            options.devices = options.devices || 1;
+            options.timeout = options.timeout || 10;
+            options.address = options.address || '255.255.255.255';
+            options.port = options.port || 60128;
+
+            client
+                .on('error', function (err) {
+                    self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", options.address, options.port, err));
+                    client.close();
+                    reject(err);
+                })
+                .on('message', function (packet, rinfo) {
+                    let message = eiscp_packet_extract(packet);
+                    let command = message.slice(0, 3);
+                    let data;
+
+                    if (command === 'ECN') {
+                        data = message.slice(3).split('/');
+                        result.push({
+                            host:     rinfo.address,
+                            port:     data[1],
+                            model:    data[0],
+                            mac:      data[3].slice(0, 12), // There's lots of null chars after MAC so we slice them off
+                            areacode: data[2]
+                        });
+                        
+                        self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", rinfo.address, rinfo.port, result));
+                        if (result.length >= options.devices) {
+                            clearTimeout(timeout_timer);
+                            client.close();
+                            resolve(result);
+                        }
+                    } else {
+                        self.emit('debug', util.format("DEBUG (received_data) Recevied data from %s:%s - %j", rinfo.address, rinfo.port, message));
+                    }
+                })
+                .on('listening', function () {
+                    client.setBroadcast(true);
+                    let onkyo_buffer = eiscp_packet('!xECNQSTN');
+                    let pioneer_buffer = eiscp_packet('!pECNQSTN');
+
+                    self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
+                    client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
+                    client.send(pioneer_buffer, 0, pioneer_buffer.length, options.port, options.address);
+                    
+                    timeout_timer = setTimeout(() => {
+                        client.close();
+                        resolve(result);
+                    }, options.timeout * 1000);
+                })
+                .bind(0);
+        });
+    };
+}
+
 self.is_connected = false;
 
 function in_modelsets(set) {
