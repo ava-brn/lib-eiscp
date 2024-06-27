@@ -13,7 +13,7 @@ The goal is to support multiple receivers and modern JS.
 ```
 {
   "dependencies": {
-    "eiscp": "git://github.com/tillbaks/node-eiscp.git"
+    "lib-eiscp": "git://github.com/ava-brn/lib-eiscp.git"
   }
 }
 ```
