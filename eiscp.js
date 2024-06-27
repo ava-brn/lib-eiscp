@@ -51,7 +51,7 @@ self.v2 = class Client {
             });
             
             socket.on('message', (packet, remoteInfo) => {
-                const message = eiscp_packet_extract(packet);
+                const message = messageFromBuffer(packet);
                 const command = message.slice(0, 3);
 
                 if (command !== 'ECN')  {
@@ -82,10 +82,10 @@ self.v2 = class Client {
 
                 socket.setBroadcast(true);
 
-                let onkyo_buffer = eiscp_packet('!xECNQSTN');
+                let onkyo_buffer = bufferFromMessage('!xECNQSTN');
                 socket.send(onkyo_buffer, 0, onkyo_buffer.length, port, address);
                 
-                let pioneer_buffer = eiscp_packet('!pECNQSTN');
+                let pioneer_buffer = bufferFromMessage('!pECNQSTN');
                 socket.send(pioneer_buffer, 0, pioneer_buffer.length, port, address);
             });
             
@@ -101,86 +101,93 @@ function in_modelsets(set) {
     return (config.modelsets.indexOf(set) !== -1);
 }
 
-function eiscp_packet(data) {
-    /*
-      Wraps command or iscp message in eISCP packet for communicating over Ethernet
-      type is device type where 1 is receiver and x is for the discovery broadcast
-      Returns complete eISCP packet as a buffer ready to be sent
-    */
-    let iscp_msg, header;
+/**
+  Wraps an ISCP message in an eISCP packet for communicating over Ethernet.
+  Type is device type where 1 is receiver and x is for the discovery broadcast
+  @param {string} iscpMessage Message in the format `[!t]cccpp`
+    where `t` is the unit type (`'1'` | `'x'`), `ccc` is the command and `pp` is the parameter.
+  @returns {Buffer} Complete eISCP packet as a buffer ready to be sent
+*/
+function bufferFromMessage(iscpMessage) {
+    const startChar = '!';
+    const receiverDestinationUnitType = '1';
+    const endChar = '\n'; // CR | LF | CRLF
 
-    // Add ISCP header if not already present
-    if (data.charAt(0) !== '!') { data = '!1' + data; }
-    // ISCP message
-    iscp_msg = Buffer.from(data + '\x0D\x0a');
+    if (iscpMessage.charAt(0) !== startChar) {
+        iscpMessage = startChar + receiverDestinationUnitType + iscpMessage;
+    }
 
-    // eISCP header
-    header = Buffer.from([
-        73, 83, 67, 80, // magic
-        0, 0, 0, 16,    // header size
-        0, 0, 0, 0,     // data size
-        1,              // version
-        0, 0, 0         // reserved
+    const eiscpData = Buffer.from(iscpMessage + endChar);
+    
+    const eiscpHeader = Buffer.from([
+        0x49, 0x53, 0x43, 0x50, // magic number 'ISCP'
+        0x00, 0x00, 0x00, 0x10, // header size = 16 bytes
+        0x00, 0x00, 0x00, 0x00, // data size, set below
+        0x01, 0x00, 0x00, 0x00, // version (1), reserved (3)
     ]);
-    // write data size to eISCP header
-    header.writeUInt32BE(iscp_msg.length, 8);
 
-    return Buffer.concat([header, iscp_msg]);
+    eiscpHeader.writeUInt32BE(eiscpData.length, 8);
+    
+    return Buffer.concat([eiscpHeader, eiscpData]);
 }
 
 /**
   Exracts message from eISCP packet
   Strip first 18 bytes and last 3 since that's only the header and end characters
-  @returns {string} message
+  @param {Buffer} packet eISCP packet 
+  @returns {string} iscpMessage
 */
-function eiscp_packet_extract(packet) {
+function messageFromBuffer(packet) {
+    // Header size 16 + startChar 1 + unitType 1 = 18 bytes
+    // End = [EOF][CR][LF] = 3 bytes
     return packet.toString('ascii', 18, packet.length - 3);
 }
 
 /** Transform a low-level ISCP message to a high-level command */
-function iscp_to_command(iscp_message) {
-    let command = iscp_message.slice(0, 3);
-    let value = iscp_message.slice(3);
+function iscpMessageToCommand(iscpMessage) {
+    let command = iscpMessage.slice(0, 3);
+    let value = iscpMessage.slice(3);
     let result = {};
 
-    Object.keys(COMMANDS).forEach(function (zone) {
+    Object.keys(COMMANDS).forEach((zone) => {
+        if (COMMANDS[zone][command] == null) { return; }
 
-        if (typeof COMMANDS[zone][command] !== 'undefined') {
-            let zone_cmd = COMMANDS[zone][command];
+        let zone_cmd = COMMANDS[zone][command];
 
-            result.command = zone_cmd.name;
-            result.zone = zone;
+        result.command = zone_cmd.name;
+        result.zone = zone;
 
-            if (typeof zone_cmd.values[value] !== 'undefined') {
-                result.argument = zone_cmd.values[value].name;
-            } else if (typeof VALUE_MAPPINGS[zone][command].INTRANGES !== 'undefined' && /^[0-9a-fA-F]+$/.test(value)) {
-                // It's a range so we need to convert args from hex to decimal
-                result.argument = parseInt(value, 16);
-            }
+        if (zone_cmd.values[value] != null) {
+            result.argument = zone_cmd.values[value].name;
+        } else if (VALUE_MAPPINGS[zone][command].INTRANGES != null && /^[0-9a-fA-F]+$/.test(value)) {
+            // It's a range so we need to convert args from hex to decimal
+            result.argument = parseInt(value, 16);
         }
     });
 
     return result;
 }
 
+/** Splits by space, dot, equals and colon and normalizes command into 3 parts: { zone, command, value } */
+function parseCommand(cmd) {
+    const parts = cmd.toLowerCase()
+        .split(/[\s\.=:]/)
+        .filter((item) => !!item);
+
+    if (parts.length < 2 || parts.length > 3) { return null; }
+    if (parts.length === 2) { parts.unshift("main"); }
+
+    return {
+        zone: parts[0],
+        command: parts[1],
+        value: parts[2]
+    };
+}
+
 // TODO: This function is starting to get very big, it should be split up into smaller parts and oranized better
 /** Transform high-level command to a low-level ISCP message */
-function command_to_iscp(command, args, zone) {
-    let base, parts, prefix, value, i, len, intranges,
-        default_zone = 'main';
-
-	function parse_command(cmd) {
-		// Splits and normalizes command into 3 parts: { zone, command, value }
-		// Split by space, dot, equals and colon
-		let parts = cmd.toLowerCase().split(/[\s\.=:]/).filter(function (item) { return item !== ''; });
-		if (parts.length < 2 || parts.length > 3) { return false; }
-		if (parts.length === 2) { parts.unshift("main"); }
-		return {
-			zone: parts[0],
-			command: parts[1],
-			value: parts[2]
-		};
-	}
+function commandToIscpMessage(command, args, zone) {
+    let parts, prefix, value, i, len, intranges;
 
     function in_intrange(number, range) {
         let parts = range.split(',');
@@ -189,10 +196,9 @@ function command_to_iscp(command, args, zone) {
     }
 
     // If parts are not explicitly given - parse the command
-    if (typeof args === 'undefined' && typeof zone === 'undefined') {
-
-		parts = parse_command(command);
-		if(!parts) {
+    if (args == null && zone == null) {
+		parts = parseCommand(command);
+		if (!parts) {
 			// Error parsing command
 			self.emit('error', util.format("ERROR (cmd_parse_error) Command and arguments provided could not be parsed (%s)", command));
 			return;
@@ -312,7 +318,7 @@ self.discover = function () {
             callback(err, null);
         })
         .on('message', function (packet, rinfo) {
-            let message = eiscp_packet_extract(packet),
+            let message = messageFromBuffer(packet),
                 command = message.slice(0, 3),
                 data;
             if (command === 'ECN') {
@@ -336,8 +342,8 @@ self.discover = function () {
         })
         .on('listening', function () {
             client.setBroadcast(true);
-            let onkyo_buffer = eiscp_packet('!xECNQSTN');
-            let pioneer_buffer = eiscp_packet('!pECNQSTN');
+            let onkyo_buffer = bufferFromMessage('!xECNQSTN');
+            let pioneer_buffer = bufferFromMessage('!pECNQSTN');
 
             self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
             client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
@@ -439,8 +445,8 @@ self.connect = function (options) {
             eiscp.destroy();
         })
         .on('data', function (data) {
-            let iscp_message = eiscp_packet_extract(data);
-            let result = iscp_to_command(iscp_message);
+            let iscp_message = messageFromBuffer(data);
+            let result = iscpMessageToCommand(iscp_message);
 
             result.iscp_command = iscp_message;
             result.host  = config.host;
@@ -478,7 +484,7 @@ send_queue = async.queue(function (data, callback) {
 
         self.emit('debug', util.format("DEBUG (sent_command) Sent command to %s:%s - %s", config.host, config.port, data));
 
-        eiscp.write(eiscp_packet(data));
+        eiscp.write(bufferFromMessage(data));
 
         setTimeout(callback, config.send_delay, false);
         return;
@@ -510,7 +516,7 @@ self.raw = function (data, callback) {
   callback only tells you that the command was sent but not that it succsessfully did what you asked
 */
 self.command = function (data, callback) {
-    self.raw(command_to_iscp(data), callback);
+    self.raw(commandToIscpMessage(data), callback);
 };
 
 /**
