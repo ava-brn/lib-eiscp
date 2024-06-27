@@ -1,8 +1,10 @@
-## node-eiscp
+# lib-eiscp
 
 This is a node module to control and interact with Onkyo receivers over the network.
 
-Basically it is a merge of my previous module which was really simple and https://github.com/miracle2k/onkyo-eiscp translated to javascript, which means a lot more features but some stuff still missing like handling multiple receivers and special commands (ranges are supported though).
+It's a fork of <https://github.com/tillbaks/node-eiscp> which in turn was inspired by <https://github.com/miracle2k/onkyo-eiscp>.
+
+The goal is to support multiple receivers and modern JS.
 
 ### How to use it?
 
@@ -192,12 +194,3 @@ Run in node-eiscp directory. This will create "eiscp-commands.json". Warning thi
 ```
 node eiscp-commands-convert.js
 ```
-
-### Changes
-
-* (owagner) added new option "verify_commands", defaulting to true, which yields the previous behavior: High-level
-  commands are verified for model compatibility, and rejected otherwise. Although in theory a good idea, this makes
-  high-level commands unusable for new models which are not yet presented in the yaml file or for which no Onkyo
-  documentation is available yet (as the time of this writing, for example, the latest V 1.26 .xls does not cover
-  the NR535)
-* (owagner) change "reconnect" property to default to true, to match documentation
