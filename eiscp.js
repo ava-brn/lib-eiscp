@@ -1,4 +1,3 @@
-/*jslint node:true nomen:true*/
 'use strict';
 var self, eiscp, send_queue,
     net = require('net'),
