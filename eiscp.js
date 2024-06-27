@@ -34,63 +34,62 @@ self.v2 = class Client {
      * @param {number} options.port       - receiver port should always be 60128 this is just available if you need it
      * @returns Promise<Service[]>
      */
-    static async discover (options = {}) {
+    static async discover ({ devices = 1, timeout = 10, address = '255.255.255.255', port = 60128 } = {}) {
         return new Promise((resolve, reject) => {
-            let timeout_timer;
-            let result = [];
-            const client = dgram.createSocket('udp4');
+            const socket = dgram.createSocket('udp4');
+            const result = [];
 
-            options.devices = options.devices || 1;
-            options.timeout = options.timeout || 10;
-            options.address = options.address || '255.255.255.255';
-            options.port = options.port || 60128;
+            const timeoutRef = setTimeout(() => {
+                socket.close();
+                resolve(result);
+            }, timeout * 1000);
 
-            client
-                .on('error', function (err) {
-                    self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", options.address, options.port, err));
-                    client.close();
-                    reject(err);
-                })
-                .on('message', function (packet, rinfo) {
-                    let message = eiscp_packet_extract(packet);
-                    let command = message.slice(0, 3);
-                    let data;
+            socket.on('error', (err) => {
+                self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", address, port, err));
+                socket.close();
+                reject(err);
+            });
+            
+            socket.on('message', (packet, remoteInfo) => {
+                const message = eiscp_packet_extract(packet);
+                const command = message.slice(0, 3);
 
-                    if (command === 'ECN') {
-                        data = message.slice(3).split('/');
-                        result.push({
-                            host:     rinfo.address,
-                            port:     data[1],
-                            model:    data[0],
-                            mac:      data[3].slice(0, 12), // There's lots of null chars after MAC so we slice them off
-                            areacode: data[2]
-                        });
-                        
-                        self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", rinfo.address, rinfo.port, result));
-                        if (result.length >= options.devices) {
-                            clearTimeout(timeout_timer);
-                            client.close();
-                            resolve(result);
-                        }
-                    } else {
-                        self.emit('debug', util.format("DEBUG (received_data) Recevied data from %s:%s - %j", rinfo.address, rinfo.port, message));
-                    }
-                })
-                .on('listening', function () {
-                    client.setBroadcast(true);
-                    let onkyo_buffer = eiscp_packet('!xECNQSTN');
-                    let pioneer_buffer = eiscp_packet('!pECNQSTN');
+                if (command !== 'ECN')  {
+                    self.emit('debug', util.format("DEBUG (received_data) Expected discovery message, but received data from %s:%s - %j", remoteInfo.address, remoteInfo.port, message));
+                    return;
+                }
 
-                    self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
-                    client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
-                    client.send(pioneer_buffer, 0, pioneer_buffer.length, options.port, options.address);
-                    
-                    timeout_timer = setTimeout(() => {
-                        client.close();
-                        resolve(result);
-                    }, options.timeout * 1000);
-                })
-                .bind(0);
+                const [model, portString, areaCode, macString] = message.slice(3).split('/');
+                result.push({
+                    model,
+                    host: remoteInfo.address,
+                    port: Number(portString),
+                    mac: macString.slice(0, 12), // There're lots of null chars after the MAC so we slice them off
+                    areaCode,
+                });
+
+                self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", remoteInfo.address, remoteInfo.port, result));
+
+                if (result.length >= devices) {
+                    clearTimeout(timeoutRef);
+                    socket.close();
+                    resolve(result);
+                }
+            });
+
+            socket.on('listening', function () {
+                self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", address, port));
+
+                socket.setBroadcast(true);
+
+                let onkyo_buffer = eiscp_packet('!xECNQSTN');
+                socket.send(onkyo_buffer, 0, onkyo_buffer.length, port, address);
+                
+                let pioneer_buffer = eiscp_packet('!pECNQSTN');
+                socket.send(pioneer_buffer, 0, pioneer_buffer.length, port, address);
+            });
+            
+            socket.bind(0);
         });
     };
 }
@@ -132,6 +131,7 @@ function eiscp_packet(data) {
 /**
   Exracts message from eISCP packet
   Strip first 18 bytes and last 3 since that's only the header and end characters
+  @returns {string} message
 */
 function eiscp_packet_extract(packet) {
     return packet.toString('ascii', 18, packet.length - 3);
