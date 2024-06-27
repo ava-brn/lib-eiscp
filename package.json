@@ -1,5 +1,5 @@
 {
-  "name": "eiscp",
+  "name": "lib-eiscp",
   "version": "0.0.1",
   "description": "interface to onkyo receivers / eiscp protocol",
   "main": "eiscp.js",
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tillbaks/node-eiscp"
+    "url": "https://github.com/ava-brn/lib-eiscp"
   },
   "keywords": [
     "onkyo",
@@ -17,7 +17,7 @@
   ],
   "license": "MIT License",
   "bugs": {
-    "url": "https://github.com/tillbaks/node-eiscp/issues"
+    "url": "https://github.com/ava-brn/lib-eiscp/issues"
   },
   "dependencies": {
       "async":  "*",
