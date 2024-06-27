@@ -364,10 +364,7 @@ self.discover = function () {
   options.reconnect_sleep - Time in seconds to sleep between reconnection attempts (default: 5)
   options.verify_commands - Whether the reject commands not found for the current model
 */
-self.connect = function (options) {
-    let connection_properties;
-
-    options = options || {};
+self.connect = function (options = {}) {
 	config.host = options.host || config.host;
 	config.port = options.port || config.port;
 	config.model = options.model || config.model;
@@ -375,7 +372,7 @@ self.connect = function (options) {
 	config.reconnect_sleep = options.reconnect_sleep || config.reconnect_sleep;
 	config.verify_commands = (options.verify_commands === undefined) ? config.verify_commands : options.verify_commands;
 
-    connection_properties = {
+    const connection_properties = {
         host: config.host,
         port: config.port
     };
