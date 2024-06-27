@@ -1,5 +1,6 @@
 'use strict';
-var self, eiscp, send_queue,
+
+let self, eiscp, send_queue,
     net = require('net'),
     dgram = require('dgram'),
     util = require('util'),
@@ -27,7 +28,7 @@ function eiscp_packet(data) {
       type is device type where 1 is receiver and x is for the discovery broadcast
       Returns complete eISCP packet as a buffer ready to be sent
     */
-    var iscp_msg, header;
+    let iscp_msg, header;
 
     // Add ISCP header if not already present
     if (data.charAt(0) !== '!') { data = '!1' + data; }
@@ -60,7 +61,7 @@ function iscp_to_command(iscp_message) {
     /*
       Transform a low-level ISCP message to a high-level command
     */
-    var command = iscp_message.slice(0, 3),
+    let command = iscp_message.slice(0, 3),
         value = iscp_message.slice(3),
         result = {};
 
@@ -68,7 +69,7 @@ function iscp_to_command(iscp_message) {
 
         if (typeof COMMANDS[zone][command] !== 'undefined') {
 
-            var zone_cmd = COMMANDS[zone][command];
+            let zone_cmd = COMMANDS[zone][command];
 
             result.command = zone_cmd.name;
             result.zone = zone;
@@ -92,13 +93,13 @@ function command_to_iscp(command, args, zone) {
     /*
       Transform high-level command to a low-level ISCP message
     */
-    var base, parts, prefix, value, i, len, intranges,
+    let base, parts, prefix, value, i, len, intranges,
         default_zone = 'main';
 
 	function parse_command(cmd) {
 		// Splits and normalizes command into 3 parts: { zone, command, value }
 		// Split by space, dot, equals and colon
-		var parts = cmd.toLowerCase().split(/[\s\.=:]/).filter(function (item) { return item !== ''; });
+		let parts = cmd.toLowerCase().split(/[\s\.=:]/).filter(function (item) { return item !== ''; });
 		if (parts.length < 2 || parts.length > 3) { return false; }
 		if (parts.length === 2) { parts.unshift("main"); }
 		return {
@@ -109,7 +110,7 @@ function command_to_iscp(command, args, zone) {
 	}
 
     function in_intrange(number, range) {
-        var parts = range.split(',');
+        let parts = range.split(',');
         number = parseInt(number, 10);
         return (parts.length === 2 && number >= parseInt(parts[0], 10) && number <= parseInt(parts[1], 10));
     }
@@ -206,7 +207,7 @@ self.discover = function () {
       option.address    - broadcast address to send magic packet to (default: 255.255.255.255)
       option.port       - receiver port should always be 60128 this is just available if you need it
     */
-    var callback, timeout_timer,
+    let callback, timeout_timer,
         options = {},
         result = [],
         client = dgram.createSocket('udp4'),
@@ -239,7 +240,7 @@ self.discover = function () {
         callback(err, null);
     })
 	.on('message', function (packet, rinfo) {
-        var message = eiscp_packet_extract(packet),
+        let message = eiscp_packet_extract(packet),
             command = message.slice(0, 3),
             data;
         if (command === 'ECN') {
@@ -262,8 +263,8 @@ self.discover = function () {
     })
 	.on('listening', function () {
         client.setBroadcast(true);
-        var onkyo_buffer = eiscp_packet('!xECNQSTN');
-	var pioneer_buffer = eiscp_packet('!pECNQSTN');
+        let onkyo_buffer = eiscp_packet('!xECNQSTN');
+	let pioneer_buffer = eiscp_packet('!pECNQSTN');
         self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", options.address, options.port));
         client.send(onkyo_buffer, 0, onkyo_buffer.length, options.port, options.address);
 	client.send(pioneer_buffer, 0, pioneer_buffer.length, options.port, options.address);
@@ -283,7 +284,7 @@ self.connect = function (options) {
       options.reconnect_sleep - Time in seconds to sleep between reconnection attempts (default: 5)
       options.verify_commands - Whether the reject commands not found for the current model
     */
-    var connection_properties;
+    let connection_properties;
 
     options = options || {};
 	config.host = options.host || config.host;
@@ -371,7 +372,7 @@ self.connect = function (options) {
 
 	on('data', function (data) {
 
-		var iscp_message = eiscp_packet_extract(data),
+		let iscp_message = eiscp_packet_extract(data),
 			result = iscp_to_command(iscp_message);
 
 		result.iscp_command = iscp_message;
@@ -456,7 +457,7 @@ self.get_commands = function (zone, callback) {
     /*
       Returns all commands in given zone
     */
-    var result = [];
+    let result = [];
     async.each(Object.keys(COMMAND_MAPPINGS[zone]), function (cmd, cb) {
         //console.log(cmd);
         result.push(cmd);
@@ -470,7 +471,7 @@ self.get_command = function (command, callback) {
     /*
       Returns all command values in given zone and command
     */
-    var val, zone,
+    let val, zone,
         result = [],
         parts = command.split('.');
 
