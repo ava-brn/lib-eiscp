@@ -24,7 +24,7 @@ let config = {
 
 module.exports = self = new events.EventEmitter();
 
-self.v2 = class Client {
+self.v2 = class Client extends events.EventEmitter {
     /**
      * Discovers eISCP providers using a UDP broadcast message.
      * @param {Object} options
@@ -45,9 +45,8 @@ self.v2 = class Client {
             }, timeout * 1000);
 
             socket.on('error', (err) => {
-                self.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", address, port, err));
                 socket.close();
-                reject(err);
+                reject(util.format("ERROR (server_error) Server error on %s:%s - %s", address, port, err));
             });
             
             socket.on('message', (packet, remoteInfo) => {
@@ -92,6 +91,152 @@ self.v2 = class Client {
             socket.bind(0);
         });
     };
+
+    constructor({ host, port, model, reconnect, reconnect_sleep, verify_commands } = {}) {
+        this.host = host;
+        this.port = port || config.port;
+        this.model = model || config.model;
+        this.reconnect = reconnect ?? config.reconnect;
+        this.reconnect_sleep = reconnect_sleep ?? config.reconnect_sleep;
+        this.verify_commands = verify_commands ?? config.verify_commands;
+        this.modelSets = new Set();
+        this.is_connected = false;
+    }
+
+    async connect() {
+        if (!this.host) {
+            throw new Error('Host required to connect!');
+        }
+        
+        // If host is configured but no model is set - we send a discover directly to this receiver
+        if (!this.model) {
+            throw new Error('Model required to connect!');
+        }
+        
+        const connection_properties = {
+            host: config.host,
+            port: config.port
+        };
+    
+        /*
+          Compute modelsets for this model (so commands which are possible on this model are allowed)
+          Note that this is not an exact match, model only has to be part of the modelname
+        */
+        Object.keys(MODELSETS).forEach((set) => {
+            MODELSETS[set].forEach((models) => {
+                if (models.indexOf(config.model) !== -1) {
+                    config.modelsets.push(set);
+                }
+            });
+        });
+
+        Object.keys(MODELSETS).forEach((set) => {
+            if (MODELSETS[set].some((model) => model.includes(this.model))) {
+                this.modelSets.add(set);
+            }
+        });
+
+        console.log(config.modelsets, this.modelSets);
+    
+        this.emit('debug', util.format("INFO (connecting) Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
+    
+        // Reconnect if we have previously connected
+        if (this.socket) {
+            this.socket.connect(connection_properties);
+            return;
+        }
+    
+        // Connecting the first time
+        this.socket = net.connect(connection_properties);
+    
+        this.socket
+            .on('connect', () => {
+                this.is_connected = true;
+                this.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", this.host, this.port, this.model));
+                this.emit('connect', this.host, this.port, this.model);
+            })
+            .on('close', () => {
+                this.is_connected = false;
+                this.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", this.host, this.port));
+                this.emit('close', this.host, this.port);
+    
+                if (this.reconnect) {
+                    setTimeout(async () => await this.connect(), this.reconnect_sleep * 1000);
+                }
+            })
+            .on('error', (err) => {
+                this.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", this.host, this.port, err));
+                this.socket.destroy();
+            })
+            .on('data', (data) => {
+                const iscpMessage = messageFromBuffer(data);
+                const result = iscpMessageToCommand(iscpMessage);
+    
+                result.iscp_command = iscpMessage;
+                result.host  = this.host;
+                result.port  = this.port;
+                result.model = this.model;
+    
+                this.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", this.host, this.port, result));
+                this.emit('message', result);
+    
+                // If the command is supported we emit it as well
+                if (result.command) {
+                    if (Array.isArray(result.command)) {
+                        result.command.forEach((cmd) => this.emit(cmd, result.argument));
+                    } else {
+                        this.emit(result.command, result.argument);
+                    }
+                }
+            });
+    };
+
+    /**
+     Send a low level command like PWR01
+    callback only tells you that the command was sent but not that it succsessfully did what you asked
+    */
+    async raw(data) {
+        return new Promise((resolve, reject) => {
+            if (!data) {
+                return reject('No data provided.');
+            }
+
+            if (!this.is_connected) {
+                self.emit('error', util.format("ERROR (send_not_connected) Not connected, can't send data: %j", data));
+                return reject('Send command, while not connected');
+            }
+
+            this.emit('debug', util.format("DEBUG (sent_command) Sent command to %s:%s - %s", this.host, this.port, data));
+            this.socket.write(bufferFromMessage(data), (err) => err ? reject(err) : resolve());
+        });
+    };
+
+    /** Send a high level command like system-power=query */
+    async command(data) {
+        return await this.raw(commandToIscpMessage(data));
+    };
+
+    close() {
+        if (this.is_connected && this.socket) {
+            this.socket.destroy();
+        }
+    }
+
+    getCommands(zone) {
+        return Object.keys(COMMAND_MAPPINGS[zone]);
+    };
+    
+    /**
+      Returns all command values in given zone and command
+    */
+    getCommandValues(command) {
+        const parts = command.split('.');
+        const zone = parts.length !== 2 ? 'main' : parts.shift();
+        command = parts.shift();
+
+        return Object.keys(VALUE_MAPPINGS[zone][COMMAND_MAPPINGS[zone][command]]);
+    };
+    
 }
 
 self.is_connected = false;
@@ -187,17 +332,11 @@ function parseCommand(cmd) {
 // TODO: This function is starting to get very big, it should be split up into smaller parts and oranized better
 /** Transform high-level command to a low-level ISCP message */
 function commandToIscpMessage(command, args, zone) {
-    let parts, prefix, value, i, len, intranges;
-
-    function in_intrange(number, range) {
-        let parts = range.split(',');
-        number = parseInt(number, 10);
-        return (parts.length === 2 && number >= parseInt(parts[0], 10) && number <= parseInt(parts[1], 10));
-    }
+    let prefix, value, i, len;
 
     // If parts are not explicitly given - parse the command
     if (args == null && zone == null) {
-		parts = parseCommand(command);
+		const parts = parseCommand(command);
 		if (!parts) {
 			// Error parsing command
 			self.emit('error', util.format("ERROR (cmd_parse_error) Command and arguments provided could not be parsed (%s)", command));
@@ -228,10 +367,9 @@ function commandToIscpMessage(command, args, zone) {
 
         if (typeof VALUE_MAPPINGS[zone][prefix].INTRANGES !== 'undefined' && /^[0-9\-+]+$/.test(args)) {
             // This command is part of a integer range
-            intranges = VALUE_MAPPINGS[zone][prefix].INTRANGES;
-            len = intranges.length;
-            for (i = 0; i < len; i += 1) {
-                if (in_modelsets(intranges[i].models) && in_intrange(args, intranges[i].range)) {
+            const intRanges = VALUE_MAPPINGS[zone][prefix].INTRANGES;
+            for (i = 0; i < intRanges.length; i += 1) {
+                if (in_modelsets(intRanges[i].models) && in_intrange(args, intRanges[i].range)) {
                     // args is an integer and is in the available range for this command
                     value = args;
                 }
@@ -274,6 +412,12 @@ function commandToIscpMessage(command, args, zone) {
     self.emit('debug', util.format('DEBUG (command_to_iscp) raw command "%s"', prefix + value));
 
     return prefix + value;
+}
+
+function in_intrange(number, range) {
+    let parts = range.split(',');
+    number = parseInt(number, 10);
+    return (parts.length === 2 && number >= parseInt(parts[0], 10) && number <= parseInt(parts[1], 10));
 }
 
 /**
