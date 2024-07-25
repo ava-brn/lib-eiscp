@@ -148,7 +148,7 @@ self.v2 = class Client extends events.EventEmitter {
             if (!this.socket.connecting && !this.is_connected) {
                 this.socket.connect(connection_properties);
             }
-            
+
             return;
         }
     
@@ -171,7 +171,7 @@ self.v2 = class Client extends events.EventEmitter {
                 }
             })
             .on('error', (err) => {
-                this.emit('error', util.format("ERROR (server_error) Server error on %s:%s - %s", this.host, this.port, err));
+                this.emit('error', err);
                 this.socket.destroy();
             })
             .on('data', (data) => {
