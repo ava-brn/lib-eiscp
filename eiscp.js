@@ -97,9 +97,9 @@ self.v2 = class Client extends events.EventEmitter {
         this.host = host;
         this.port = port || config.port;
         this.model = model || config.model;
-        this.reconnect = reconnect ?? config.reconnect;
+        this.reconnect = reconnect != null ? reconnect : config.reconnect;
         this.reconnect_sleep = reconnect_sleep ?? config.reconnect_sleep;
-        this.verify_commands = verify_commands ?? config.verify_commands;
+        this.verify_commands = verify_commands != null ? verify_commands : config.verify_commands;
         this.modelSets = new Set();
         this.is_connected = false;
     }
