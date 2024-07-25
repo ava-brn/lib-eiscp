@@ -93,6 +93,7 @@ self.v2 = class Client extends events.EventEmitter {
     };
 
     constructor({ host, port, model, reconnect, reconnect_sleep, verify_commands } = {}) {
+        super();
         this.host = host;
         this.port = port || config.port;
         this.model = model || config.model;
