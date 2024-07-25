@@ -143,7 +143,12 @@ self.v2 = class Client extends events.EventEmitter {
     
         // Reconnect if we have previously connected
         if (this.socket) {
-            this.socket.connect(connection_properties);
+            console.log(this.socket.readyState);
+
+            if (!this.socket.connecting && !this.is_connected) {
+                this.socket.connect(connection_properties);
+            }
+            
             return;
         }
     
