@@ -4,12 +4,12 @@ const net = require('net');
 const dgram = require('dgram');
 const util = require('util');
 const events = require('events');
-const eiscp_commands = require('./eiscp-commands.json');
+const eiscpCommands = require('./eiscp-commands.json');
 
-const COMMANDS = eiscp_commands.commands;
-const COMMAND_MAPPINGS = eiscp_commands.command_mappings;
-const VALUE_MAPPINGS = eiscp_commands.value_mappings;
-const MODELSETS = eiscp_commands.modelsets;
+const COMMANDS = eiscpCommands.commands;
+const COMMAND_MAPPINGS = eiscpCommands.command_mappings;
+const VALUE_MAPPINGS = eiscpCommands.value_mappings;
+const MODELSETS = eiscpCommands.modelsets;
 
 const DEFAULT_CONFIG = {
     port: 60128,
