@@ -114,9 +114,9 @@ self.v2 = class Client extends events.EventEmitter {
             throw new Error('Model required to connect!');
         }
         
-        const connection_properties = {
-            host: config.host,
-            port: config.port
+        const connectionTarget = {
+            host: this.host,
+            port: this.port
         };
     
         /*
@@ -139,21 +139,21 @@ self.v2 = class Client extends events.EventEmitter {
 
         console.log(config.modelsets, this.modelSets);
     
-        this.emit('debug', util.format("INFO (connecting) Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
+        self.emit('debug', util.format("INFO (connecting) Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
     
         // Reconnect if we have previously connected
         if (this.socket) {
             console.log(this.socket.readyState);
 
             if (!this.socket.connecting && !this.is_connected) {
-                this.socket.connect(connection_properties);
+                this.socket.connect(connectionTarget);
             }
 
             return;
         }
     
         // Connecting the first time
-        this.socket = net.connect(connection_properties);
+        this.socket = net.connect(connectionTarget);
     
         this.socket
             .on('connect', () => {
