@@ -242,7 +242,93 @@ self.v2 = class Client extends events.EventEmitter {
 
         return Object.keys(VALUE_MAPPINGS[zone][COMMAND_MAPPINGS[zone][command]]);
     };
+
+    commandToIscpMessage(command, args, zone) {
+        let prefix, value, i;
     
+        // If parts are not explicitly given - parse the command
+        if (args == null && zone == null) {
+            const parts = parseCommand(command);
+            if (!parts) {
+                // Error parsing command
+                this.emit('error', util.format("ERROR (cmd_parse_error) Command and arguments provided could not be parsed (%s)", command));
+                return;
+            }
+            zone = parts.zone;
+            command = parts.command;
+            args = parts.value;
+        }
+    
+        self.emit('debug', util.format('DEBUG (command_to_iscp) Zone: %s | Command: %s | Argument: %s', zone, command, args));
+    
+        // Find the command in our database, resolve to internal eISCP command
+    
+        if (typeof COMMANDS[zone] === 'undefined') {
+            this.emit('error', util.format("ERROR (zone_not_exist) Zone %s does not exist in command file", zone));
+            return;
+        }
+    
+        if (typeof COMMAND_MAPPINGS[zone][command] === 'undefined') {
+            this.emit('error', util.format("ERROR (cmd_not_exist) Command %s does not exist in zone %s", command, zone));
+            return;
+        }
+    
+        prefix = COMMAND_MAPPINGS[zone][command];
+    
+        if (typeof VALUE_MAPPINGS[zone][prefix][args] === 'undefined') {
+    
+            if (typeof VALUE_MAPPINGS[zone][prefix].INTRANGES !== 'undefined' && /^[0-9\-+]+$/.test(args)) {
+                // This command is part of a integer range
+                
+    
+            } else {
+                // Not yet supported command
+                this.emit('error', util.format("ERROR (arg_not_exist) Argument %s does not exist in command %s", args, command));
+                return;
+            }
+    
+        } else {
+            // Check if the commands modelset is in the receviers modelsets
+            if (!this.verify_commands || in_modelsets(VALUE_MAPPINGS[zone][prefix][args].models)) {
+                value = VALUE_MAPPINGS[zone][prefix][args].value;
+            } else {
+                self.emit('error', util.format("ERROR (cmd_not_supported) Command %s in zone %s is not supported on this model.", command, zone));
+                return;
+            }
+        }
+    
+        self.emit('debug', util.format('DEBUG (command_to_iscp) raw command "%s"', prefix + value));
+    
+        return prefix + value;
+    }
+    
+}
+
+function rangeValue({ zone, prefix, args, }) {
+    const intRanges = VALUE_MAPPINGS[zone][prefix].INTRANGES;
+    for (let i = 0; i < intRanges.length; i += 1) {
+        if (in_modelsets(intRanges[i].models) && in_intrange(args, intRanges[i].range)) {
+            // args is an integer and is in the available range for this command
+            value = args;
+        }
+    }
+
+    if (typeof value === 'undefined' && config.verify_commands) {
+        throw new Error(util.format("Command %s=%s is not available on this model", command, args));
+    } else {
+        value = args;
+    }
+
+    if (value.indexOf('+') !== -1){ // For range -12 to + 12
+        // Convert decimal number to hexadecimal since receiver doesn't understand decimal
+        value = (+value).toString(16).toUpperCase();
+        value = '+' + value;
+    } else {
+        // Convert decimal number to hexadecimal since receiver doesn't understand decimal
+        value = (+value).toString(16).toUpperCase();
+        // Pad value if it is not 2 digits
+        value = (value.length < 2) ? '0' + value : value;
+    }
 }
 
 self.is_connected = false;
