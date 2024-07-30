@@ -77,7 +77,7 @@ self.v2 = class Client extends events.EventEmitter {
             });
 
             socket.on('listening', function () {
-                self.emit('debug', util.format("DEBUG (sent_discovery) Sent broadcast discovery packet to %s:%s", address, port));
+                self.emit('debug', util.format("Sent broadcast discovery packet to %s:%s", address, port));
 
                 socket.setBroadcast(true);
 
@@ -143,7 +143,6 @@ self.v2 = class Client extends events.EventEmitter {
             this.socket
                 .on('connect', () => {
                     this.is_connected = true;
-                    this.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", this.host, this.port, this.model));
                     this.emit('connect', this.host, this.port, this.model);
                 })
                 .on('close', () => {
