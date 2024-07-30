@@ -119,82 +119,68 @@ self.v2 = class Client extends events.EventEmitter {
             port: this.port
         };
     
-        /*
-          Compute modelsets for this model (so commands which are possible on this model are allowed)
-          Note that this is not an exact match, model only has to be part of the modelname
-        */
-        Object.keys(MODELSETS).forEach((set) => {
-            MODELSETS[set].forEach((models) => {
-                if (models.indexOf(config.model) !== -1) {
-                    config.modelsets.push(set);
-                }
-            });
-        });
-
-        Object.keys(MODELSETS).forEach((set) => {
-            if (MODELSETS[set].some((model) => model.includes(this.model))) {
-                this.modelSets.add(set);
-            }
-        });
-
-        console.log(config.modelsets, this.modelSets);
+        this.computeModelSets(); // to verity commands (if set to true)
     
         self.emit('debug', util.format("INFO (connecting) Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
-    
-        // Reconnect if we have previously connected
-        if (this.socket) {
-            console.log(this.socket.readyState);
+        return new Promise((resolve, reject) => {
+            
+            // Reconnect if we have previously connected
+            if (this.socket) {
+                console.log(this.socket.readyState);
 
-            if (!this.socket.connecting && !this.is_connected) {
-                this.socket.connect(connectionTarget);
+                if (!this.socket.connecting && !this.is_connected) {
+                    this.socket.once('error', (error) => reject(error));
+                    this.socket.connect(connectionTarget, () => resolve());
+                }
+
+                return;
             }
-
-            return;
-        }
-    
-        // Connecting the first time
-        this.socket = net.connect(connectionTarget);
-    
-        this.socket
-            .on('connect', () => {
-                this.is_connected = true;
-                this.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", this.host, this.port, this.model));
-                this.emit('connect', this.host, this.port, this.model);
-            })
-            .on('close', () => {
-                this.is_connected = false;
-                this.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", this.host, this.port));
-                this.emit('close', this.host, this.port);
-    
-                if (this.reconnect) {
-                    setTimeout(async () => await this.connect(), this.reconnect_sleep * 1000);
-                }
-            })
-            .on('error', (err) => {
-                this.emit('error', err);
-                this.socket.destroy();
-            })
-            .on('data', (data) => {
-                const iscpMessage = messageFromBuffer(data);
-                const result = iscpMessageToCommand(iscpMessage);
-    
-                result.iscp_command = iscpMessage;
-                result.host  = this.host;
-                result.port  = this.port;
-                result.model = this.model;
-    
-                this.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", this.host, this.port, result));
-                this.emit('message', result);
-    
-                // If the command is supported we emit it as well
-                if (result.command) {
-                    if (Array.isArray(result.command)) {
-                        result.command.forEach((cmd) => this.emit(cmd, result.argument));
-                    } else {
-                        this.emit(result.command, result.argument);
+        
+            // Connecting the first time
+            this.socket = net.connect(connectionTarget, () => resolve());
+            this.socket.once('error', (error) => reject(error));
+        
+            this.socket
+                .on('connect', () => {
+                    this.is_connected = true;
+                    this.emit('debug', util.format("INFO (connected) Connected to %s:%s (model: %s)", this.host, this.port, this.model));
+                    this.emit('connect', this.host, this.port, this.model);
+                })
+                .on('close', () => {
+                    this.is_connected = false;
+                    this.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", this.host, this.port));
+                    this.emit('close', this.host, this.port);
+        
+                    if (this.reconnect) {
+                        setTimeout(async () => await this.connect(), this.reconnect_sleep * 1000);
                     }
-                }
-            });
+                })
+                .on('error', (err) => {
+                    this.emit('error', err);
+                    this.socket.destroy();
+                })
+                .on('data', (data) => {
+                    const iscpMessage = messageFromBuffer(data);
+                    const result = iscpMessageToCommand(iscpMessage);
+        
+                    result.iscp_command = iscpMessage;
+                    result.host  = this.host;
+                    result.port  = this.port;
+                    result.model = this.model;
+        
+                    this.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", this.host, this.port, result));
+                    this.emit('message', result);
+        
+                    // If the command is supported we emit it as well
+                    if (result.command) {
+                        if (Array.isArray(result.command)) {
+                            result.command.forEach((cmd) => this.emit(cmd, result.argument));
+                        } else {
+                            this.emit(result.command, result.argument);
+                        }
+                    }
+                });
+        });
     };
 
     /**
@@ -302,6 +288,28 @@ self.v2 = class Client extends events.EventEmitter {
         return prefix + value;
     }
     
+    /**
+        Compute modelsets for this model (so commands which are possible on this model are allowed)
+        Note that this is not an exact match, model only has to be part of the modelname
+    */
+    computeModelSets() {
+        Object.keys(MODELSETS).forEach((set) => {
+            MODELSETS[set].forEach((models) => {
+                if (models.indexOf(config.model) !== -1) {
+                    config.modelsets.push(set);
+                }
+            });
+        });
+
+        Object.keys(MODELSETS).forEach((set) => {
+            if (MODELSETS[set].some((model) => model.includes(this.model))) {
+                this.modelSets.add(set);
+            }
+        });
+
+        // Compare old and new approach
+        console.log(config.modelsets, this.modelSets);
+    }
 }
 
 function rangeValue({ zone, prefix, args, }) {
