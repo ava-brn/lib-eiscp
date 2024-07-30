@@ -46,7 +46,7 @@ self.v2 = class Client extends events.EventEmitter {
 
             socket.on('error', (err) => {
                 socket.close();
-                reject(util.format("ERROR (server_error) Server error on %s:%s - %s", address, port, err));
+                reject(util.format("Server error on %s:%s - %s", address, port, err));
             });
             
             socket.on('message', (packet, remoteInfo) => {
@@ -54,7 +54,7 @@ self.v2 = class Client extends events.EventEmitter {
                 const command = message.slice(0, 3);
 
                 if (command !== 'ECN')  {
-                    self.emit('debug', util.format("DEBUG (received_data) Expected discovery message, but received data from %s:%s - %j", remoteInfo.address, remoteInfo.port, message));
+                    self.emit('debug', util.format("Expected discovery message, but received data from %s:%s - %j", remoteInfo.address, remoteInfo.port, message));
                     return;
                 }
 
@@ -121,7 +121,7 @@ self.v2 = class Client extends events.EventEmitter {
     
         this.computeModelSets(); // to verity commands (if set to true)
     
-        self.emit('debug', util.format("INFO (connecting) Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
+        self.emit('debug', util.format("Connecting to %s:%s (model: %s)", this.host, this.port, this.model));
         return new Promise((resolve, reject) => {
             
             // Reconnect if we have previously connected
@@ -147,7 +147,7 @@ self.v2 = class Client extends events.EventEmitter {
                 })
                 .on('close', () => {
                     this.is_connected = false;
-                    this.emit('debug', util.format("INFO (disconnected) Disconnected from %s:%s", this.host, this.port));
+                    this.emit('debug', util.format("Disconnected from %s:%s", this.host, this.port));
                     this.emit('close', this.host, this.port);
         
                     if (this.reconnect) {
@@ -167,7 +167,7 @@ self.v2 = class Client extends events.EventEmitter {
                     result.port  = this.port;
                     result.model = this.model;
         
-                    this.emit('debug', util.format("DEBUG (received_data) Received data from %s:%s - %j", this.host, this.port, result));
+                    this.emit('debug', util.format("Received data from %s:%s - %j", this.host, this.port, result));
                     this.emit('message', result);
         
                     // If the command is supported we emit it as well
@@ -193,11 +193,11 @@ self.v2 = class Client extends events.EventEmitter {
             }
 
             if (!this.is_connected) {
-                self.emit('error', util.format("ERROR (send_not_connected) Not connected, can't send data: %j", data));
+                self.emit('error', util.format("Not connected, can't send data: %j", data));
                 return reject('Send command, while not connected');
             }
 
-            this.emit('debug', util.format("DEBUG (sent_command) Sent command to %s:%s - %s", this.host, this.port, data));
+            this.emit('debug', util.format("Sent command to %s:%s - %s", this.host, this.port, data));
             this.socket.write(bufferFromMessage(data), (err) => err ? reject(err) : resolve());
         });
     };
@@ -236,7 +236,7 @@ self.v2 = class Client extends events.EventEmitter {
             const parts = parseCommand(command);
             if (!parts) {
                 // Error parsing command
-                this.emit('error', util.format("ERROR (cmd_parse_error) Command and arguments provided could not be parsed (%s)", command));
+                this.emit('error', util.format("Command and arguments provided could not be parsed (%s)", command));
                 return;
             }
             zone = parts.zone;
@@ -244,17 +244,17 @@ self.v2 = class Client extends events.EventEmitter {
             args = parts.value;
         }
     
-        self.emit('debug', util.format('DEBUG (command_to_iscp) Zone: %s | Command: %s | Argument: %s', zone, command, args));
+        this.emit('debug', 'Command to ISCP', {zone, command, args});
     
         // Find the command in our database, resolve to internal eISCP command
     
         if (typeof COMMANDS[zone] === 'undefined') {
-            this.emit('error', util.format("ERROR (zone_not_exist) Zone %s does not exist in command file", zone));
+            this.emit('error', util.format("Zone %s does not exist in command file", zone));
             return;
         }
     
         if (typeof COMMAND_MAPPINGS[zone][command] === 'undefined') {
-            this.emit('error', util.format("ERROR (cmd_not_exist) Command %s does not exist in zone %s", command, zone));
+            this.emit('error', util.format("Command %s does not exist in zone %s", command, zone));
             return;
         }
     
@@ -268,7 +268,7 @@ self.v2 = class Client extends events.EventEmitter {
     
             } else {
                 // Not yet supported command
-                this.emit('error', util.format("ERROR (arg_not_exist) Argument %s does not exist in command %s", args, command));
+                this.emit('error', util.format("Argument %s does not exist in command %s", args, command));
                 return;
             }
     
@@ -277,12 +277,12 @@ self.v2 = class Client extends events.EventEmitter {
             if (!this.verify_commands || in_modelsets(VALUE_MAPPINGS[zone][prefix][args].models)) {
                 value = VALUE_MAPPINGS[zone][prefix][args].value;
             } else {
-                self.emit('error', util.format("ERROR (cmd_not_supported) Command %s in zone %s is not supported on this model.", command, zone));
+                self.emit('error', util.format("Command %s in zone %s is not supported on this model.", command, zone));
                 return;
             }
         }
     
-        self.emit('debug', util.format('DEBUG (command_to_iscp) raw command "%s"', prefix + value));
+        self.emit('debug', util.format('Command to ISCP message (raw command) "%s"', prefix + value));
     
         return prefix + value;
     }
@@ -307,7 +307,7 @@ self.v2 = class Client extends events.EventEmitter {
         });
 
         // Compare old and new approach
-        console.log(config.modelsets, this.modelSets);
+        this.emit('debug', 'Comparing model sets', config.modelsets, this.modelSets);
     }
 }
 
