@@ -67,7 +67,7 @@ self.v2 = class Client extends events.EventEmitter {
                     areaCode,
                 });
 
-                self.emit('debug', util.format("DEBUG (received_discovery) Received discovery packet from %s:%s (%j)", remoteInfo.address, remoteInfo.port, result));
+                self.emit('debug', "Received discovery packet from", { host: remoteInfo.address, port: remoteInfo.port, model });
 
                 if (result.length >= devices) {
                     clearTimeout(timeoutRef);
