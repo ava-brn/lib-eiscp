@@ -219,7 +219,7 @@ self.v2 = class Client extends events.EventEmitter {
 
     /** Send a high level command like system-power=query */
     async command(data) {
-        return await this.raw(commandToIscpMessage(data));
+        return await this.raw(this.commandToIscpMessage(data));
     };
 
     close() {
