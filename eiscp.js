@@ -20,7 +20,7 @@ const DEFAULT_CONFIG = {
     verifyCommands: true
 };
 
-module.exports.v2 = class Client extends events.EventEmitter {
+module.exports = class Client extends events.EventEmitter {
     static debugger = new events.EventEmitter();
 
     /**
